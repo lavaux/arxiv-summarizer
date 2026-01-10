@@ -1,0 +1,17 @@
+[tool.poetry]
+name = "arxivreader"
+version = "0.1.0"
+description = ""
+authors = ["Guilhem Lavaux <guilhem.lavaux@iap.fr>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.13"
+arxiv = "^2.4.0"
+weasyprint = "^67.0"
+markdown = "^3.10"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
