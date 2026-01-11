@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "arxivreader"
+name = "arxiv_summarizer"
 version = "0.1.0"
 description = ""
 authors = ["Guilhem Lavaux <guilhem.lavaux@iap.fr>"]
@@ -15,6 +15,9 @@ mattermost-api-reference-client = "^4.1.1"
 
 [tool.poetry.group.dev.dependencies]
 python-semantic-release = "^10.5.3"
+
+[tool.poetry.scripts]
+arxiv_summarizer="arxiv_summarizer.summarizer:main"
 
 [build-system]
 requires = ["poetry-core"]
