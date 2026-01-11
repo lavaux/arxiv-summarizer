@@ -72,10 +72,9 @@ default_bump_level = 0
 
 [tool.semantic_release.remote]
 name = "origin"
-type = "gitea"
+type = "github"
 ignore_token_for_push = false
 insecure = false
-domain = "git.guilhem-lavaux.eu"
 
 [tool.semantic_release.publish]
 dist_glob_patterns = ["dist/*"]
