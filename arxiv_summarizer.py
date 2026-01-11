@@ -20,6 +20,17 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
+import sys
+
+
+try:
+    from mattermost_api_reference_client import AuthenticatedClient
+    from mattermost_api_reference_client.api.posts import create_post
+    from mattermost_api_reference_client.models.create_post_body import CreatePostBody
+    MATTERMOST_AVAILABLE = True
+except ImportError as e:
+    print(f"Warning: mattermost-api-reference-client not installed. Mattermost functionality will be disabled. ({e})")
+    MATTERMOST_AVAILABLE = False
 
 
 # Category configurations with default preferences
@@ -106,13 +117,90 @@ CATEGORY_CONFIGS = {
 }
 
 
+class MattermostBot:
+    """Mattermost bot for sending messages."""
+    
+    def __init__(self, server_url: str, bot_token: str, channel_id: str):
+        """
+        Initialize Mattermost bot.
+        
+        Args:
+            server_url: Mattermost server URL (e.g., https://mattermost.example.com)
+            bot_token: Bot access token
+            channel_id: Channel ID where to post messages
+        """
+        self.server_url = server_url.rstrip('/')
+        self.bot_token = bot_token
+        self.channel_id = channel_id
+        self.client = None
+        
+    def connect(self) -> bool:
+        """
+        Connect to Mattermost server.
+        
+        Returns:
+            True if connection successful, False otherwise
+        """
+        if not MATTERMOST_AVAILABLE:
+            print("Error: mattermost-api-reference-client is not installed. Install with: pip install mattermost-api-reference-client")
+            return False
+            
+        try:
+            # Initialize authenticated client
+            self.client = AuthenticatedClient(
+                base_url=self.server_url,
+                token=self.bot_token
+            )
+            
+            print(f"Successfully connected to Mattermost: {self.server_url}")
+            return True
+        except Exception as e:
+            print(f"Error connecting to Mattermost: {e}")
+            print(f"  Server URL: {self.server_url}")
+            print(f"  Make sure the server URL is valid (e.g., https://mattermost.example.com)")
+            return False
+    
+    def send_message(self, message: str) -> bool:
+        """
+        Send a message to the configured channel.
+        
+        Args:
+            message: Message to send
+            
+        Returns:
+            True if message sent successfully, False otherwise
+        """
+        if not self.client:
+            print("Error: Not connected to Mattermost. Call connect() first.")
+            return False
+        
+        try:
+            post_body = CreatePostBody(channel_id=self.channel_id, message=message)
+
+            # Send message using the API
+            create_post.sync(body=post_body, client=self.client)
+            
+            print("Message sent to Mattermost successfully")
+            return True
+        except Exception as e:
+            print(f"Error sending message to Mattermost: {e}")
+            return False
+    
+    def disconnect(self):
+        """Disconnect from Mattermost server."""
+        if self.client:
+            self.client = None
+            print("Disconnected from Mattermost")
+
+
 class ArxivSummarizer:
     def __init__(self, preferences_file: str = "preferences.txt", 
                  ollama_url: str = "http://localhost:11434",
                  model: str = "llama3.2",
                  auth_token: Optional[str] = None,
                  category: str = "astro-ph.CO",
-                 email_config: Optional[Dict] = None):
+                 email_config: Optional[Dict] = None,
+                 mattermost_config: Optional[Dict] = None):
         """
         Initialize the ArXiv summarizer.
         
@@ -128,6 +216,10 @@ class ArxivSummarizer:
                 - sender_email: Sender email address
                 - sender_password: Sender email password (or use EMAIL_PASSWORD env var)
                 - recipient_email: Recipient email address
+            mattermost_config: Mattermost configuration dict with keys:
+                - server_url: Mattermost server URL
+                - bot_token: Bot access token (or use MATTERMOST_BOT_TOKEN env var)
+                - channel_id: Channel ID to post messages
         """
         self.preferences_file = Path(preferences_file)
         self.ollama_url = ollama_url
@@ -140,6 +232,23 @@ class ArxivSummarizer:
             'default_preferences': []
         })
         self.email_config = email_config or {}
+        
+        # Initialize Mattermost bot
+        self.mattermost_bot = None
+        self.mattermost_config = mattermost_config or {}
+        if self.mattermost_config:
+            bot_token = self.mattermost_config.get('bot_token') or os.getenv('MATTERMOST_BOT_TOKEN')
+            if bot_token and self.mattermost_config.get('server_url') and self.mattermost_config.get('channel_id'):
+                self.mattermost_config['bot_token'] = bot_token
+                self.mattermost_bot = MattermostBot(
+                    server_url=self.mattermost_config['server_url'],
+                    bot_token=bot_token,
+                    channel_id=self.mattermost_config['channel_id']
+                )
+
+                assert self.mattermost_bot.connect()
+                # self.mattermost_bot.send_message("ArXiv Summarizer bot connected and ready to send messages.")
+        
         self.preferences = self._load_preferences()
         
     def _load_preferences(self) -> List[str]:
@@ -338,6 +447,7 @@ Please provide:
 1. A brief overview paragraph identifying major themes and breakthrough results in {field_context}
 2. Highlight 2-3 papers of particular significance and explain why they matter
 3. Note any emerging trends or connections between papers
+4. The URL link to the pdf of the arxiv paper for further reading
 
 Daily Digest:"""
     
@@ -380,7 +490,7 @@ Daily Digest:"""
     def run(self, category: str = "astro-ph.CO", days_back: int = 1, 
             max_results: int = 100, min_relevance: float = 0.1,
             output_file: str = None, output_format: str = "text",
-            send_email: bool = False) -> str:
+            send_email: bool = False, send_mattermost: bool = False) -> str:
         """
         Run the complete pipeline.
         
@@ -392,6 +502,7 @@ Daily Digest:"""
             output_file: Optional file to save output
             output_format: Output format ('text', 'markdown', or 'pdf')
             send_email: Whether to send the digest via email
+            send_mattermost: Whether to send the digest to Mattermost
 
         Returns:
             Complete digest text
@@ -438,6 +549,10 @@ Daily Digest:"""
         # Send email if requested
         if send_email:
             self._send_email(output_file, output_format, content=output if not output_file else None)
+        
+        # Send to Mattermost if requested
+        if send_mattermost:
+            self._send_to_mattermost(digest, papers_with_summaries)
 
         return output
     
@@ -643,6 +758,72 @@ Research Interests: {', '.join(self.preferences)}
             
         except Exception as e:
             print(f"Error sending email: {e}")
+    
+    def _send_to_mattermost(self, digest: str, papers: List[Dict]):
+        """
+        Send the digest to Mattermost.
+        
+        Args:
+            digest: Daily digest text
+            papers: List of papers with summaries
+        """
+        if not self.mattermost_bot:
+            print("Mattermost bot not configured. Skipping Mattermost send.")
+            return
+        
+        try:
+            # Connect to Mattermost
+            if not self.mattermost_bot.connect():
+                print("Failed to connect to Mattermost")
+                return
+            
+            # Build the message
+            category_name = self.category_config.get('name', self.category)
+            
+            # Create a formatted message with digest
+            message_lines = [
+                f"## ArXiv Daily Digest - {datetime.now().strftime('%Y-%m-%d')}",
+                f"**Category:** {category_name}",
+                f"**Research Interests:** {', '.join(self.preferences)}",
+                "",
+                "### Daily Overview",
+                digest,
+            ]
+            
+            # Add paper summaries
+            if not papers is None and len(papers) > 0:
+                message_lines.append("")
+                message_lines.append("### Paper Summaries")
+                for i, paper in enumerate(papers):
+                    message_lines.append(f"\n**{i+1}. {paper['title']}**")
+                    message_lines.append(f"[arXiv:{paper['arxiv_id']}]({paper['pdf_url']})")
+                    message_lines.append(f"*Relevance: {paper['relevance_score']:.2f}*")
+                    message_lines.append(f"\n{paper['summary']}")
+            
+            # Join and send message
+            message = "\n".join(message_lines)
+            
+            # Mattermost has a message limit, split if necessary
+            max_message_length = 4000
+            if len(message) > max_message_length:
+                # Send digest as first message
+                digest_message = "\n".join(message_lines[:6])
+                self.mattermost_bot.send_message(digest_message)
+                
+                # Send papers in chunks
+                remaining = "\n".join(message_lines[6:])
+                for i in range(0, len(remaining), max_message_length):
+                    chunk = remaining[i:i+max_message_length]
+                    if chunk.strip():
+                        self.mattermost_bot.send_message(chunk)
+            else:
+                self.mattermost_bot.send_message(message)
+            
+            # Disconnect
+            self.mattermost_bot.disconnect()
+            
+        except Exception as e:
+            print(f"Error sending to Mattermost: {e}")
 
 
 def main():
@@ -698,6 +879,17 @@ def main():
     email_group.add_argument('--smtp-port', type=int, default=587,
                             help='SMTP port (default: 587)')
     
+    # Mattermost options
+    mattermost_group = parser.add_argument_group('mattermost options')
+    mattermost_group.add_argument('--mattermost', action='store_true',
+                                 help='Send digest to Mattermost')
+    mattermost_group.add_argument('--mm-server-url',
+                                 help='Mattermost server URL (e.g., https://mattermost.example.com)')
+    mattermost_group.add_argument('--mm-bot-token',
+                                 help='Mattermost bot access token (or set MATTERMOST_BOT_TOKEN env var)')
+    mattermost_group.add_argument('--mm-channel-id',
+                                 help='Mattermost channel ID to post messages')
+    
     args = parser.parse_args()
     
     # Handle --list-categories
@@ -721,13 +913,23 @@ def main():
             'recipient_email': args.email_to
         }
     
+    # Build Mattermost config if Mattermost is requested
+    mattermost_config = None
+    if args.mattermost:
+        mattermost_config = {
+            'server_url': args.mm_server_url,
+            'bot_token': args.mm_bot_token,
+            'channel_id': args.mm_channel_id
+        }
+    
     summarizer = ArxivSummarizer(
         preferences_file=args.preferences,
         ollama_url=args.ollama_url,
         model=args.model,
         auth_token=args.auth_token,
         category=args.category,
-        email_config=email_config
+        email_config=email_config,
+        mattermost_config=mattermost_config
     )
     
     digest = summarizer.run(
@@ -737,7 +939,8 @@ def main():
         min_relevance=args.min_relevance,
         output_file=args.output,
         output_format=args.format,
-        send_email=args.email
+        send_email=args.email,
+        send_mattermost=args.mattermost
     )
 
     if not args.output and not args.email:    
