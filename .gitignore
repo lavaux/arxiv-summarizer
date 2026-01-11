@@ -1,0 +1,12 @@
+*
+
+!*.py
+!CHANGELOG.md
+!auto_seminar
+!auto_seminar/templates
+!pyproject.toml
+!README.md
+!.gitignore
+!LICENSE
+!requirements.txt
+!poetry.lock
