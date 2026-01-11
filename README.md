@@ -59,7 +59,39 @@ large scale structure
 
 If the file doesn’t exist, the script will create it with default preferences for your chosen category.
 
-### 2. Email (Optional)
+### 2. YAML Configuration (Optional)
+
+You can pass a single YAML file with `--config my_settings.yaml`. CLI flags override YAML, which overrides environment variables and built-in defaults (precedence: CLI > YAML > env > default).
+
+Example YAML:
+
+```yaml
+summarizer:
+  category: cs.LG
+  days_back: 2
+  output_format: pdf
+  output_file: digest.pdf
+  model: llama3.2
+  ollama_url: http://localhost:11434
+email:
+  enabled: false
+mattermost:
+  enabled: true
+  server_url: https://mattermost.example.com
+  channel_id: YOUR_CHANNEL_ID
+  bot_token: ${MATTERMOST_BOT_TOKEN}
+  content_mode: pdf
+```
+
+### 3. Environment Variables (Optional)
+
+Pydantic settings also read from `config.env` or the process environment. Prefixes are `ARXIV_`, `EMAIL_`, and `MATTERMOST_`.
+
+- Summarizer: `ARXIV_PREFERENCES_FILE`, `ARXIV_CATEGORY`, `ARXIV_DAYS_BACK`, `ARXIV_MAX_RESULTS`, `ARXIV_MIN_RELEVANCE`, `ARXIV_OUTPUT_FILE`, `ARXIV_OUTPUT_FORMAT`, `ARXIV_MODEL`, `ARXIV_OLLAMA_URL`, `OLLAMA_AUTH_TOKEN`.
+- Email: `EMAIL_ENABLED`, `EMAIL_SMTP_SERVER`, `EMAIL_SMTP_PORT`, `EMAIL_SENDER_EMAIL`, `EMAIL_PASSWORD`, `EMAIL_RECIPIENT_EMAIL`.
+- Mattermost: `MATTERMOST_ENABLED`, `MATTERMOST_SERVER_URL`, `MATTERMOST_CHANNEL_ID`, `MATTERMOST_BOT_TOKEN`, `MATTERMOST_CONTENT_MODE`.
+
+### 4. Email (Optional)
 
 To send the digest via email, provide the following arguments:
 - `--email`: Enable email sending.
@@ -69,13 +101,14 @@ To send the digest via email, provide the following arguments:
 - `--smtp-server`: SMTP server address (e.g., `smtp.gmail.com`).
 - `--smtp-port`: SMTP port (default: `587`).
 
-### 3. Mattermost (Optional)
+### 5. Mattermost (Optional)
 
 To post the digest to Mattermost:
 - `--mattermost`: Enable Mattermost posting.
 - `--mm-server-url`: Mattermost server URL (e.g., `https://mattermost.example.com`).
 - `--mm-bot-token`: Bot access token (or set the `MATTERMOST_BOT_TOKEN` environment variable).
 - `--mm-channel-id`: Channel ID to post messages.
+- `--mm-content`: Choose `summaries` (default) or `pdf` to upload the generated PDF.
 
 ---
 
@@ -130,6 +163,7 @@ python arxiv_daily_summary.py --mattermost --mm-server-url https://mattermost.ex
 | `--model`              | Ollama model to use (default: `llama3.2`).                                 |
 | `--ollama-url`         | Ollama API URL (default: `http://localhost:11434`).                        |
 | `--auth-token`         | Bearer token for Ollama authentication (or set `OLLAMA_AUTH_TOKEN` env var).|
+| `--config`             | YAML config file path; CLI overrides YAML.                                 |
 | `--list-categories`    | List all available categories and exit.                                    |
 | `--email`              | Send digest via email.                                                     |
 | `--email-to`           | Recipient email address.                                                   |
@@ -141,6 +175,7 @@ python arxiv_daily_summary.py --mattermost --mm-server-url https://mattermost.ex
 | `--mm-server-url`      | Mattermost server URL.                                                     |
 | `--mm-bot-token`       | Mattermost bot access token (or set `MATTERMOST_BOT_TOKEN` env var).      |
 | `--mm-channel-id`      | Mattermost channel ID to post messages.                                    |
+| `--mm-content`         | Mattermost content mode: `summaries` or `pdf`.                             |
 
 ---
 
