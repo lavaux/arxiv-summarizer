@@ -1,3 +1,4 @@
+# main script in case
 from .summarizer import main
 
 if __name__ == "__main__":
