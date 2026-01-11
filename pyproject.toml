@@ -40,7 +40,7 @@ allow_zero_version = true
 tag_format = "v{version}"
 
 [tool.semantic_release.remote.token]
-env = "GH_TOKEN"
+env = "GH_TOKEN_ARXIV"
 
 [tool.semantic_release.branches.main]
 match = "(main|master)"
