@@ -49,6 +49,16 @@ CATEGORY_CONFIGS = {
             'cosmological simulations'
         ]
     },
+    'astro-ph': {
+        'name': 'Astrophysics',
+        'default_preferences': [
+            'dark energy',
+            'cosmic microwave background',
+            'large scale structure',
+            'galaxy clusters',
+            'cosmological simulations'
+        ]
+    },
     'stat.ML': {
         'name': 'Machine Learning (Statistics)',
         'default_preferences': [
@@ -123,11 +133,11 @@ CATEGORY_CONFIGS = {
 
 class MattermostBot:
     """Mattermost bot for sending messages."""
-    
+
     def __init__(self, server_url: str, bot_token: str, channel_id: str):
         """
         Initialize Mattermost bot.
-        
+
         Args:
             server_url: Mattermost server URL (e.g., https://mattermost.example.com)
             bot_token: Bot access token
@@ -137,25 +147,25 @@ class MattermostBot:
         self.bot_token = bot_token
         self.channel_id = channel_id
         self.client = None
-        
+
     def connect(self) -> bool:
         """
         Connect to Mattermost server.
-        
+
         Returns:
             True if connection successful, False otherwise
         """
         if not MATTERMOST_AVAILABLE:
             print("Error: mattermost-api-reference-client is not installed. Install with: pip install mattermost-api-reference-client")
             return False
-            
+
         try:
             # Initialize authenticated client
             self.client = AuthenticatedClient(
                 base_url=self.server_url,
                 token=self.bot_token
             )
-            
+
             print(f"Successfully connected to Mattermost: {self.server_url}")
             return True
         except Exception as e:
@@ -163,22 +173,22 @@ class MattermostBot:
             print(f"  Server URL: {self.server_url}")
             print(f"  Make sure the server URL is valid (e.g., https://mattermost.example.com)")
             return False
-    
+
     def send_message(self, message: str, file_ids: Optional[List[str]] = None) -> bool:
         """
         Send a message to the configured channel.
-        
+
         Args:
             message: Message to send
             file_ids: Optional Mattermost file IDs to attach
-            
+
         Returns:
             True if message sent successfully, False otherwise
         """
         if not self.client:
             print("Error: Not connected to Mattermost. Call connect() first.")
             return False
-        
+
         try:
             # Mattermost rejects empty messages; provide a short placeholder when only a file is posted.
             final_message = message if message.strip() else "Attached file"
@@ -186,7 +196,7 @@ class MattermostBot:
 
             # Send message using the API
             create_post.sync(body=post_body, client=self.client)
-            
+
             print("Message sent to Mattermost successfully")
             return True
         except Exception as e:
@@ -228,7 +238,7 @@ class MattermostBot:
             return False
 
         return self.send_message(message, file_ids=[file_id])
-    
+
     def disconnect(self):
         """Disconnect from Mattermost server."""
         if self.client:
@@ -248,7 +258,7 @@ class ArxivSummarizer:
             return {k: v for k, v in config_obj.items() if v is not None}
         return {}
 
-    def __init__(self, preferences_file: str = "preferences.txt", 
+    def __init__(self, preferences_file: str = "preferences.txt",
                  ollama_url: str = "http://localhost:11434",
                  model: str = "llama3.2",
                  auth_token: Optional[str] = None,
@@ -257,7 +267,7 @@ class ArxivSummarizer:
                  mattermost_config: Optional[Union[MattermostSettings, Dict]] = None):
         """
         Initialize the ArXiv summarizer.
-        
+
         Args:
             preferences_file: Path to file containing preferred topics (one per line)
             ollama_url: URL for Ollama API
@@ -286,7 +296,7 @@ class ArxivSummarizer:
             'default_preferences': []
         })
         self.email_config = self._config_to_dict(email_config)
-        
+
         # Initialize Mattermost bot
         self.mattermost_bot = None
         self.mattermost_config = self._config_to_dict(mattermost_config)
@@ -302,9 +312,9 @@ class ArxivSummarizer:
 
                 assert self.mattermost_bot.connect()
                 # self.mattermost_bot.send_message("ArXiv Summarizer bot connected and ready to send messages.")
-        
+
         self.preferences = self._load_preferences()
-        
+
     def _load_preferences(self) -> List[str]:
         """Load user preferences from file."""
         if not self.preferences_file.exists():
@@ -314,37 +324,40 @@ class ArxivSummarizer:
                 default_prefs = ['research', 'theory', 'experiment']
             self.preferences_file.write_text("\n".join(default_prefs))
             return default_prefs
-        
+
         with open(self.preferences_file, 'r') as f:
             prefs = [line.strip() for line in f if line.strip() and not line.startswith('#')]
         return prefs
-    
+
     def fetch_papers(self, category: str = None, days_back: int = 1, max_results: int = 100) -> List[Dict]:
         """
         Fetch papers from arXiv for the specified category.
-        
+
         Args:
             category: arXiv category (overrides instance category if provided)
             days_back: Number of days to look back
             max_results: Maximum number of papers to fetch
-            
+
         Returns:
             List of paper dictionaries with metadata
         """
         if category is None:
             category = self.category
-            
+
         # Calculate date range
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days_back)
-        
+
         # Get query string (some categories use wildcards)
-        query = self.category_config.get('query', f"cat:{category}")
+        startDateStr = "{:04d}{:02d}{:02d}0000".format(start_date.year, start_date.month, start_date.day)
+        endDateStr = "{:04d}{:02d}{:02d}0000".format(end_date.year, end_date.month, end_date.day)
+        query = "{} AND submittedDate:[{} TO {}]".format(self.category_config.get('query', f"cat:{category}"), startDateStr, endDateStr)
+        print(query)
         category_name = self.category_config.get('name', category)
-        
+
         print(f"Fetching papers from {category_name} ({category})")
         print(f"  Date range: {start_date.date()} to {end_date.date()}")
-        
+
         # Create client and build search query
         client = arxiv.Client()
         search = arxiv.Search(
@@ -353,13 +366,17 @@ class ArxivSummarizer:
             sort_by=arxiv.SortCriterion.SubmittedDate,
             sort_order=arxiv.SortOrder.Descending
         )
-        
+
         papers = []
+        first = True
         for result in client.results(search):
             # Filter by submission date
+            if first:
+              print(f"First paper date: {result.published}")
+#              first = False
             if result.published.replace(tzinfo=None) < start_date:
                 continue
-                
+
             paper = {
                 'title': result.title,
                 'authors': [author.name for author in result.authors],
@@ -370,32 +387,32 @@ class ArxivSummarizer:
                 'pdf_url': result.pdf_url
             }
             papers.append(paper)
-        
+
         print(f"Found {len(papers)} papers")
         return papers
-    
+
     def _calculate_relevance_score(self, paper: Dict) -> float:
         """
         Calculate relevance score based on user preferences.
-        
+
         Args:
             paper: Paper dictionary
-            
+
         Returns:
             Relevance score (0-1)
         """
         text = f"{paper['title']} {paper['abstract']}".lower()
         matches = sum(1 for pref in self.preferences if pref.lower() in text)
         return matches / len(self.preferences) if self.preferences else 0
-    
+
     def filter_papers(self, papers: List[Dict], min_relevance: float = 0.1) -> List[Dict]:
         """
         Filter papers based on relevance to user preferences.
-        
+
         Args:
             papers: List of paper dictionaries
             min_relevance: Minimum relevance score (0-1)
-            
+
         Returns:
             Filtered and sorted list of papers
         """
@@ -405,20 +422,20 @@ class ArxivSummarizer:
             if score >= min_relevance:
                 paper['relevance_score'] = score
                 scored_papers.append(paper)
-        
+
         # Sort by relevance score (descending)
         scored_papers.sort(key=lambda x: x['relevance_score'], reverse=True)
-        
+
         print(f"Filtered to {len(scored_papers)} relevant papers")
         return scored_papers
-    
+
     def _call_ollama(self, prompt: str) -> str:
         """
         Call Ollama API for text generation.
-        
+
         Args:
             prompt: Input prompt
-            
+
         Returns:
             Generated text
         """
@@ -428,12 +445,12 @@ class ArxivSummarizer:
             "prompt": prompt,
             "stream": False
         }
-        
+
         # Prepare headers with optional authentication
         headers = {"Content-Type": "application/json"}
         if self.auth_token:
             headers["Authorization"] = f"Bearer {self.auth_token}"
-        
+
         try:
             response = requests.post(url, json=payload, headers=headers, timeout=120)
             response.raise_for_status()
@@ -441,7 +458,7 @@ class ArxivSummarizer:
         except requests.exceptions.RequestException as e:
             print(f"Error calling Ollama API: {e}")
             return f"[Error generating summary: {e}]"
-    
+
     def _create_paper_summary_prompt(self, paper: Dict) -> str:
         """Create prompt for summarizing a single paper."""
         # Adjust expertise based on category
@@ -453,7 +470,7 @@ class ArxivSummarizer:
             expertise = "physics"
         else:
             expertise = "the relevant scientific field"
-            
+
         return f"""You are an expert in {expertise}. Provide a concise, technical summary of the following arXiv paper in 2-3 sentences. Focus on the key findings, methods, and implications.
 
 Title: {paper['title']}
@@ -461,12 +478,12 @@ Title: {paper['title']}
 Abstract: {paper['abstract']}
 
 Summary:"""
-    
+
     def _create_daily_digest_prompt(self, papers_with_summaries: List[Dict]) -> str:
         """Create prompt for generating overall daily digest."""
         user_interests = ", ".join(self.preferences)
         category_name = self.category_config.get('name', self.category)
-        
+
         # Adjust expertise based on category
         if self.category.startswith('stat.') or self.category.startswith('cs.'):
             expertise = "machine learning and statistics"
@@ -480,7 +497,7 @@ Summary:"""
         else:
             expertise = "the relevant scientific field"
             field_context = "recent research"
-        
+
         papers_text = "\n\n".join([
             f"Paper {i+1}: {p['title']}\n"
             f"Relevance Score: {p['relevance_score']:.2f}\n"
@@ -488,8 +505,8 @@ Summary:"""
             f"arXiv ID: {p['arxiv_id']}"
             for i, p in enumerate(papers_with_summaries)
         ])
-        
-        return f"""You are an expert in {expertise} preparing a daily research digest. Based on the following paper summaries from arXiv's {category_name} category, create a cohesive overview highlighting the most important developments and trends.
+
+        return f"""You are an expert in {expertise} preparing a daily research digest. Based on the following paper summaries from arXiv's {category_name} category, create a cohesive overview highlighting the most important developments and trends. You will not invent any papers. You will stay factual and avoid grandiloquent words. Do not overuse bold fonts.
 
 User's research interests: {user_interests}
 
@@ -504,35 +521,35 @@ Please provide:
 4. The URL link to the pdf of the arxiv paper for further reading
 
 Daily Digest:"""
-    
+
     def summarize_papers(self, papers: List[Dict]) -> List[Dict]:
         """
         Generate summaries for each paper using Ollama.
-        
+
         Args:
             papers: List of paper dictionaries
-            
+
         Returns:
             Papers with added 'summary' field
         """
         print(f"Generating summaries for {len(papers)} papers...")
-        
+
         for i, paper in enumerate(papers):
             print(f"  Summarizing paper {i+1}/{len(papers)}: {paper['title'][:60]}...")
             prompt = self._create_paper_summary_prompt(paper)
             summary = self._call_ollama(prompt)
             paper['summary'] = summary.strip()
             time.sleep(0.5)  # Rate limiting
-        
+
         return papers
-    
+
     def generate_daily_digest(self, papers_with_summaries: List[Dict]) -> str:
         """
         Generate an overall daily digest from paper summaries.
-        
+
         Args:
             papers_with_summaries: List of papers with summaries
-            
+
         Returns:
             Daily digest text
         """
@@ -540,15 +557,15 @@ Daily Digest:"""
         prompt = self._create_daily_digest_prompt(papers_with_summaries)
         digest = self._call_ollama(prompt)
         return digest.strip()
-    
-    def run(self, category: str = "astro-ph.CO", days_back: int = 1, 
+
+    def run(self, category: str = "astro-ph.CO", days_back: int = 1,
             max_results: int = 100, min_relevance: float = 0.1,
             output_file: str = None, output_format: str = "text",
             send_email: bool = False, send_mattermost: bool = False,
             mattermost_content: str = "summaries") -> str:
         """
         Run the complete pipeline.
-        
+
         Args:
             category: arXiv category
             days_back: Days to look back
@@ -567,45 +584,45 @@ Daily Digest:"""
         print(f"ArXiv Daily Summary - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print("=" * 80)
         print(f"\nUser preferences: {', '.join(self.preferences)}\n")
-        
+
         # Fetch papers
         papers = self.fetch_papers(category, days_back, max_results)
-        
+
         if not papers:
             return "No papers found for the specified date range."
-        
+
         # Filter by relevance
         relevant_papers = self.filter_papers(papers, min_relevance)
-        
+
         if not relevant_papers:
             return "No papers matched your preferences."
-        
+
         # Generate individual summaries
         papers_with_summaries = self.summarize_papers(relevant_papers[:10])  # Limit to top 10
-        
+
         # Generate daily digest
         digest = self.generate_daily_digest(papers_with_summaries)
-        
+
         # Format output based on requested format
         if output_format == "markdown":
             output = self._format_markdown(digest, papers_with_summaries)
         else:
             output = self._format_output(digest, papers_with_summaries)
-        
+
         # Save to file if requested
         if output_file:
             if output_format == "pdf":
-                self._save_as_pdf(output if output_format == "text" else 
-                                 self._format_markdown(digest, papers_with_summaries), 
+                self._save_as_pdf(output if output_format == "text" else
+                                 self._format_markdown(digest, papers_with_summaries),
                                  output_file)
             else:
                 Path(output_file).write_text(output)
             print(f"\nSaved digest to {output_file}")
-        
+
         # Send email if requested
         if send_email:
             self._send_email(output_file, output_format, content=output if not output_file else None)
-        
+
         # Send to Mattermost if requested
         if send_mattermost:
             self._send_to_mattermost(
@@ -617,7 +634,7 @@ Daily Digest:"""
             )
 
         return output
-    
+
     def _format_output(self, digest: str, papers: List[Dict]) -> str:
         """Format the final output."""
         category_name = self.category_config.get('name', self.category)
@@ -634,19 +651,19 @@ Daily Digest:"""
         output.append("\n" + "-" * 80)
         output.append("INDIVIDUAL PAPER SUMMARIES")
         output.append("-" * 80)
-        
+
         for i, paper in enumerate(papers):
             output.append(f"\n{i+1}. {paper['title']}")
-            output.append(f"   Authors: {', '.join(paper['authors'][:3])}" + 
+            output.append(f"   Authors: {', '.join(paper['authors'][:3])}" +
                          (" et al." if len(paper['authors']) > 3 else ""))
             output.append(f"   arXiv ID: {paper['arxiv_id']}")
             output.append(f"   Published: {paper['published']}")
             output.append(f"   Relevance Score: {paper['relevance_score']:.2f}")
             output.append(f"   PDF: {paper['pdf_url']}")
             output.append(f"\n   Summary: {paper['summary']}\n")
-        
+
         return "\n".join(output)
-    
+
     def _format_markdown(self, digest: str, papers: List[Dict]) -> str:
         """Format the output as Markdown."""
         category_name = self.category_config.get('name', self.category)
@@ -659,24 +676,24 @@ Daily Digest:"""
         output.append(digest + "\n")
         output.append("---\n")
         output.append("## Individual Paper Summaries\n")
-        
+
         for i, paper in enumerate(papers):
             output.append(f"### {i+1}. {paper['title']}\n")
-            output.append(f"**Authors:** {', '.join(paper['authors'][:3])}" + 
+            output.append(f"**Authors:** {', '.join(paper['authors'][:3])}" +
                          (" et al." if len(paper['authors']) > 3 else "") + "\n")
             output.append(f"**arXiv ID:** [{paper['arxiv_id']}]({paper['pdf_url']})")
             output.append(f" | **Published:** {paper['published']}")
             output.append(f" | **Relevance:** {paper['relevance_score']:.2f}\n")
             output.append(f"**Summary:** {paper['summary']}\n")
-        
+
         return "\n".join(output)
-    
+
     def _save_as_pdf(self, markdown_content: str, output_file: str):
         """Convert markdown content to PDF."""
         try:
             # Convert markdown to HTML
             html_content = markdown.markdown(markdown_content, extensions=['extra', 'nl2br'])
-            
+
             # Add CSS styling for better PDF appearance
             styled_html = f"""
             <!DOCTYPE html>
@@ -734,21 +751,21 @@ Daily Digest:"""
             </body>
             </html>
             """
-            
+
             # Convert HTML to PDF
             HTML(string=styled_html).write_pdf(output_file)
             print(f"PDF generated successfully: {output_file}")
-            
+
         except Exception as e:
             print(f"Error generating PDF: {e}")
             print("Falling back to markdown output...")
             # Fallback to markdown if PDF generation fails
             Path(output_file.replace('.pdf', '.md')).write_text(markdown_content)
-    
+
     def _send_email(self, output_file: str, output_format: str, content: str = None):
         """
         Send the digest via email.
-        
+
         Args:
             output_file: Path to the output file (if saved)
             output_format: Format of the output ('text', 'markdown', 'pdf')
@@ -757,25 +774,25 @@ Daily Digest:"""
         if not self.email_config:
             print("Email configuration not provided. Skipping email send.")
             return
-        
+
         # Get email configuration
         smtp_server = self.email_config.get('smtp_server')
         smtp_port = self.email_config.get('smtp_port', 587)
         sender_email = self.email_config.get('sender_email')
         sender_password = self.email_config.get('sender_password') or os.getenv('EMAIL_PASSWORD')
         recipient_email = self.email_config.get('recipient_email')
-        
+
         if not all([smtp_server, sender_email, sender_password, recipient_email]):
             print("Incomplete email configuration. Required: smtp_server, sender_email, sender_password, recipient_email")
             return
-        
+
         try:
             # Create message
             msg = MIMEMultipart()
             msg['From'] = sender_email
             msg['To'] = recipient_email
             msg['Subject'] = f"ArXiv Daily Digest - {datetime.now().strftime('%Y-%m-%d')} - {self.category_config.get('name', self.category)}"
-            
+
             # Email body
             category_name = self.category_config.get('name', self.category)
             body = f"""
@@ -788,7 +805,7 @@ Your personalized digest is attached.
 Research Interests: {', '.join(self.preferences)}
 """
             msg.attach(MIMEText(body, 'plain'))
-            
+
             # Attach file if it exists
             if output_file and Path(output_file).exists():
                 with open(output_file, 'rb') as f:
@@ -808,19 +825,19 @@ Research Interests: {', '.join(self.preferences)}
                     f'attachment; filename=arxiv_digest_{datetime.now().strftime("%Y%m%d")}.txt'
                 )
                 msg.attach(attachment)
-            
+
             # Send email
             print(f"Sending email to {recipient_email}...")
             with smtplib.SMTP(smtp_server, smtp_port) as server:
                 server.starttls()
                 server.login(sender_email, sender_password)
                 server.send_message(msg)
-            
+
             print(f"Email sent successfully to {recipient_email}")
-            
+
         except Exception as e:
             print(f"Error sending email: {e}")
-    
+
     def _send_to_mattermost(
         self,
         digest: str,
@@ -831,7 +848,7 @@ Research Interests: {', '.join(self.preferences)}
     ):
         """
         Send the digest to Mattermost.
-        
+
         Args:
             digest: Daily digest text
             papers: List of papers with summaries
@@ -842,13 +859,13 @@ Research Interests: {', '.join(self.preferences)}
         if not self.mattermost_bot:
             print("Mattermost bot not configured. Skipping Mattermost send.")
             return
-        
+
         try:
             # Connect to Mattermost
             if not self.mattermost_bot.connect():
                 print("Failed to connect to Mattermost")
                 return
-            
+
             category_name = self.category_config.get('name', self.category)
 
             print(f"Sending digest to Mattermost channel ID: {self.mattermost_bot.channel_id}")
@@ -890,7 +907,7 @@ Research Interests: {', '.join(self.preferences)}
                     "### Daily Overview",
                     digest,
                 ]
-                
+
                 # Add paper summaries
                 if not papers is None and len(papers) > 0:
                     message_lines.append("")
@@ -900,17 +917,17 @@ Research Interests: {', '.join(self.preferences)}
                         message_lines.append(f"[arXiv:{paper['arxiv_id']}]({paper['pdf_url']})")
                         message_lines.append(f"*Relevance: {paper['relevance_score']:.2f}*")
                         message_lines.append(f"\n{paper['summary']}")
-                
+
                 # Join and send message
                 message = "\n".join(message_lines)
-                
+
                 # Mattermost has a message limit, split if necessary
                 max_message_length = 4000
                 if len(message) > max_message_length:
                     # Send digest as first message
                     digest_message = "\n".join(message_lines[:6])
                     self.mattermost_bot.send_message(digest_message)
-                    
+
                     # Send papers in chunks
                     remaining = "\n".join(message_lines[6:])
                     for i in range(0, len(remaining), max_message_length):
@@ -919,10 +936,10 @@ Research Interests: {', '.join(self.preferences)}
                             self.mattermost_bot.send_message(chunk)
                 else:
                     self.mattermost_bot.send_message(message)
-            
+
             # Disconnect
             self.mattermost_bot.disconnect()
-            
+
         except Exception as e:
             print(f"Error sending to Mattermost: {e}")
 
@@ -930,13 +947,13 @@ Research Interests: {', '.join(self.preferences)}
 def main():
     """Main entry point."""
     import argparse
-    
+
     # Build category choices and help text
     category_choices = list(CATEGORY_CONFIGS.keys())
     category_help = "arXiv category. Available options:\n"
     for cat, config in CATEGORY_CONFIGS.items():
         category_help += f"  {cat}: {config['name']}\n"
-    
+
     parser = argparse.ArgumentParser(
         description='Generate daily arXiv summaries',
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -954,7 +971,7 @@ def main():
     parser.add_argument('--preferences', default=None,
                        help='Preferences file (overrides YAML/env)')
     parser.add_argument('--output', help='Output file for digest (overrides YAML/env)')
-    parser.add_argument('--format', choices=['text', 'markdown', 'pdf'], 
+    parser.add_argument('--format', choices=['text', 'markdown', 'pdf'],
                        default=None,
                        help='Output format (overrides YAML/env)')
     parser.add_argument('--model', default=None,
@@ -965,12 +982,12 @@ def main():
                        help='Bearer token for Ollama authentication (overrides YAML/env)')
     parser.add_argument('--list-categories', action='store_true',
                        help='List all available categories and exit')
-    
+
     # Email options
     email_group = parser.add_argument_group('email options')
     email_group.add_argument('--email', action='store_true', default=None,
                             help='Send digest via email (overrides YAML/env)')
-    email_group.add_argument('--email-to', 
+    email_group.add_argument('--email-to',
                             help='Recipient email address')
     email_group.add_argument('--email-from',
                             help='Sender email address')
@@ -980,7 +997,7 @@ def main():
                             help='SMTP server address (e.g., smtp.gmail.com)')
     email_group.add_argument('--smtp-port', type=int, default=587,
                             help='SMTP port (default: 587)')
-    
+
     # Mattermost options
     mattermost_group = parser.add_argument_group('mattermost options')
     mattermost_group.add_argument('--mattermost', action='store_true', default=None,
@@ -994,9 +1011,9 @@ def main():
     mattermost_group.add_argument('--mm-content', choices=['summaries', 'pdf'],
                                  default=None,
                                  help='Content to send to Mattermost: text summaries or the generated PDF')
-    
+
     args = parser.parse_args()
-    
+
     # Handle --list-categories
     if args.list_categories:
         print("Available arXiv categories:")
@@ -1006,7 +1023,7 @@ def main():
             print(f"  Name: {config['name']}")
             print(f"  Default preferences: {', '.join(config.get('default_preferences', []))}")
         return
-    
+
     yaml_sections = load_yaml_config(args.config)
     yaml_s = yaml_sections.get('summarizer', {})
     yaml_email = yaml_sections.get('email', {})
@@ -1064,7 +1081,7 @@ def main():
         email_config=email_settings if email_settings.is_enabled else None,
         mattermost_config=mattermost_settings if mattermost_settings.is_enabled else None,
     )
-    
+
     digest = summarizer.run(
         category=summarizer_settings.category,
         days_back=summarizer_settings.days_back,
@@ -1077,7 +1094,7 @@ def main():
         mattermost_content=mattermost_settings.content_mode,
     )
 
-    if not summarizer_settings.output_file and not email_settings.is_enabled:    
+    if not summarizer_settings.output_file and not email_settings.is_enabled:
         print("\n" + digest)
 
 
