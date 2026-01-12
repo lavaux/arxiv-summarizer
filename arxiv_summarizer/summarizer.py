@@ -611,9 +611,9 @@ Daily Digest:"""
             self._send_to_mattermost(
                 digest,
                 papers_with_summaries,
-                output_file,
-                output_format,
-                mattermost_content,
+                output_file=output_file,
+                output_format=output_format,
+                content_mode=mattermost_content,
             )
 
         return output
@@ -851,6 +851,8 @@ Research Interests: {', '.join(self.preferences)}
             
             category_name = self.category_config.get('name', self.category)
 
+            print(f"Sending digest to Mattermost channel ID: {self.mattermost_bot.channel_id}")
+            print(f"  Content mode: {content_mode}")
             if content_mode == "pdf":
                 # Ensure we have a PDF to upload
                 temp_file = None
@@ -990,7 +992,7 @@ def main():
     mattermost_group.add_argument('--mm-channel-id',
                                  help='Mattermost channel ID to post messages')
     mattermost_group.add_argument('--mm-content', choices=['summaries', 'pdf'],
-                                 default='summaries',
+                                 default=None,
                                  help='Content to send to Mattermost: text summaries or the generated PDF')
     
     args = parser.parse_args()
@@ -1044,8 +1046,11 @@ def main():
             'server_url': first_non_none(args.mm_server_url, yaml_mm.get('server_url')),
             'bot_token': first_non_none(args.mm_bot_token, yaml_mm.get('bot_token')),
             'channel_id': first_non_none(args.mm_channel_id, yaml_mm.get('channel_id')),
-            'content_mode': first_non_none(args.mm_content, yaml_mm.get('content_mode')),
+            'content_mode': first_non_none(args.mm_content, yaml_mm.get('content_mode'), "summaries"),
         })
+        print(f"Using summarizer settings: {summarizer_settings}")
+        print(f"Using email settings: {email_settings}")
+        print(f"Using Mattermost settings: {mattermost_settings}")
     except ValidationError as e:
         print(f"Configuration error: {e}")
         sys.exit(1)
